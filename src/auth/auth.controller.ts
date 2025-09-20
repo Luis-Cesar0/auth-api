@@ -8,14 +8,11 @@ export class AuthController {
 
   @Post('cadastra')
   async cadastra(@Body() cad: CadastroDTO) {
-    await this.authService.cadastra(cad);
-    return cad;
+    return await this.authService.cadastra(cad);
   }
 
   @Post('login')
   async login(@Body() log: LoginDTO) {
-    await this.authService.login(log);
-
-    return log;
+    return await this.authService.login(log);
   }
 }
