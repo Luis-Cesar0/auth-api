@@ -1,78 +1,82 @@
 import {
-  Injectable,
   ConflictException,
-  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-
-import { PrismaService } from '../prisma/prisma.service';
-import { CadastroDTO, LoginDTO } from './DTOS/auth';
-import { Prisma } from 'generated/prisma';
-import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { Prisma } from '../../generated/prisma';
+import { PrismaService } from '../prisma/prisma.service';
+import type { CadastroDTO, LoginDTO } from './DTOS/auth';
+import type { JwtPayload } from './auth.guard';
+
+const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    private prismaService: PrismaService,
-    private jwtService: JwtService,
+    private readonly prismaService: PrismaService,
+    private readonly jwtService: JwtService,
   ) {}
 
-  async cadastra(cad: CadastroDTO): Promise<{ name: string }> {
+  async cadastra(cadastro: CadastroDTO): Promise<{ name: string }> {
     try {
-      const hashedPassword = await bcrypt.hash(cad.password, 8);
-
-      const cadastro = await this.prismaService.user.create({
+      const hashedPassword = await bcrypt.hash(
+        cadastro.password,
+        BCRYPT_ROUNDS,
+      );
+      const createdUser = await this.prismaService.user.create({
         data: {
-          ...cad,
+          name: cadastro.name,
+          email: cadastro.email,
           password: hashedPassword,
         },
       });
-      return {
-        name: cadastro.name,
-      };
+
+      return { name: createdUser.name };
     } catch (error: unknown) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('Já existe uma conta com esse email');
+        throw new ConflictException('Já existe uma conta com esse e-mail');
       }
 
-      this.logger.error('Erro ao criar um usuário', (error as Error).stack);
-      throw new BadRequestException('Erro ao criar um usuário');
+      this.logger.error(
+        'Não foi possível cadastrar o usuário',
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException(
+        'Não foi possível cadastrar o usuário',
+      );
     }
   }
 
-  async login(log: LoginDTO) {
+  async login(login: LoginDTO): Promise<{ accessToken: string }> {
     const user = await this.prismaService.user.findUnique({
-      where: {
-        email: log.email,
-      },
+      where: { email: login.email },
     });
 
-    try {
-      if (!user) throw new UnauthorizedException('Credencias invalidas');
-
-      const passwordMach = await bcrypt.compare(log.password, user.password);
-
-      if (!passwordMach)
-        throw new UnauthorizedException('Credencias invalidas');
-      const tokenJWT = await this.jwtService.signAsync({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-      });
-
-      return {
-        Token: tokenJWT,
-      };
-    } catch (error) {
-      this.logger.error(`erro ao logar ${error}`);
-      throw new UnauthorizedException('Erro no login');
+    if (!user) {
+      throw new UnauthorizedException('Credenciais inválidas');
     }
+
+    const passwordMatches = await bcrypt.compare(login.password, user.password);
+    if (!passwordMatches) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+    };
+    const accessToken = await this.jwtService.signAsync(payload);
+
+    return { accessToken };
   }
 }

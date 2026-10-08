@@ -1,24 +1,32 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { CadastroDTO, LoginDTO } from './DTOS/auth';
-import { AuthService } from './auth.service';
+import type { AuthenticatedRequest } from './auth.guard';
 import { AuthGuard } from './auth.guard';
+import { AuthService } from './auth.service';
+import type { CadastroDTO, LoginDTO } from './DTOS/auth';
+import { cadastroSchema, loginSchema } from './DTOS/auth';
+import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('cadastra')
-  async cadastra(@Body() cad: CadastroDTO) {
-    return await this.authService.cadastra(cad);
+  cadastra(
+    @Body(new ZodValidationPipe(cadastroSchema)) cad: CadastroDTO,
+  ): Promise<{ name: string }> {
+    return this.authService.cadastra(cad);
   }
 
   @Post('login')
-  async login(@Body() log: LoginDTO) {
-    return await this.authService.login(log);
+  login(
+    @Body(new ZodValidationPipe(loginSchema)) log: LoginDTO,
+  ): Promise<{ accessToken: string }> {
+    return this.authService.login(log);
   }
+
   @UseGuards(AuthGuard)
   @Get('perfil')
-  async perfil(@Req() req) {
-    return req.user;
+  perfil(@Req() request: AuthenticatedRequest) {
+    return request.user;
   }
 }
